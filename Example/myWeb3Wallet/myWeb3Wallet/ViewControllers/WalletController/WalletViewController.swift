@@ -63,6 +63,7 @@ class WalletViewController: UIViewController {
             print("Clicked on Mnemonics Option")
             guard let mnemonics = alert.textFields?[0].text else { return }
             print(mnemonics)
+            self.nimonicTest(nimonic: mnemonics)
         }
         let privateKeyAction = UIAlertAction(title: "Private Key", style: .default) { _ in
             print("Clicked on Private Key Wallet Option")
@@ -77,6 +78,24 @@ class WalletViewController: UIViewController {
         alert.addAction(cancelAction)
         self.present(alert, animated: true, completion: nil)
     }
+    
+    
+    func nimonicTest(nimonic: String) {
+        print("importedNimonic: \(nimonic)")
+        let tempWalletAddress = try? BIP32Keystore(mnemonics: nimonic , prefixPath: "m/44'/77777'/0'/0")
+        print(tempWalletAddress?.addresses?.first?.address as Any)
+        guard let walletAddress = tempWalletAddress?.addresses?.first else {
+            self.showAlertMessage(title: "", message: "We are unable to create wallet", actionName: "Ok")
+            return
+        }
+        self._walletAddress = walletAddress.address
+        guard let privateKey = try? tempWalletAddress?.UNSAFE_getPrivateKeyData(password: "web3swift", account: walletAddress) else {
+            print("음?")
+            return
+        }
+        print("다시 생성한 개인키: \(privateKey.toHexString())")
+    }
+    
     func importWalletWith(privateKey: String){
         let formattedKey = privateKey.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let dataKey = Data.fromHex(formattedKey) else {
@@ -126,24 +145,26 @@ extension WalletViewController {
     
     fileprivate func createMnemonics(){
         let userDir = NSSearchPathForDirectoriesInDomains(.documentDirectory, .userDomainMask, true)[0]
-        let web3KeystoreManager = KeystoreManager.managerForPath(userDir + "/keystore")
+        let web3KeystoreManager = KeystoreManager.managerForPath(userDir + "/keystore") // 키스토어 매니저 생성
         do {
-            if (web3KeystoreManager?.addresses?.count ?? 0 >= 0) {
-                let tempMnemonics = try? BIP39.generateMnemonics(bitsOfEntropy: 256, language: .english)
+            if (web3KeystoreManager?.addresses?.count ?? 0 >= 0) { // 처음에는 0이 뜰것
+                let tempMnemonics = try? BIP39.generateMnemonics(bitsOfEntropy: 256, language: .english) // 니모닉 만들기
                 guard let tMnemonics = tempMnemonics else {
                     self.showAlertMessage(title: "", message: "We are unable to create wallet", actionName: "Ok")
                     return
                 }
                 self._mnemonics = tMnemonics
                 print(_mnemonics)
-                let tempWalletAddress = try? BIP32Keystore(mnemonics: self._mnemonics , prefixPath: "m/44'/77777'/0'/0")
+                let tempWalletAddress = try? BIP32Keystore(mnemonics: self._mnemonics , prefixPath: "m/44'/77777'/0'/0") // 아까 만든 니모닉으로 시드, 키스토어 어드레스를 만든다. 패스워드는 디폴트로 하면 안에 하드코딩 되어있음. 이부분에서 시간이 좀 걸리는듯.
+                // 결국 니모닉데이터 + 니모닉패스워드로 Seed를 만든다. 패스워드는 그냥 패스워드와 니모닉패스워드 두개가 있음
+                // 내부적으로 Seed를 이용해 HDNode를 생성. HDNode안에는 개인키와 공개키 키쌍을 생성한다
                 print(tempWalletAddress?.addresses?.first?.address as Any)
                 guard let walletAddress = tempWalletAddress?.addresses?.first else {
                     self.showAlertMessage(title: "", message: "We are unable to create wallet", actionName: "Ok")
                     return
                 }
                 self._walletAddress = walletAddress.address
-                let privateKey = try tempWalletAddress?.UNSAFE_getPrivateKeyData(password: "", account: walletAddress)
+                let privateKey = try tempWalletAddress?.UNSAFE_getPrivateKeyData(password: "web3swift", account: walletAddress)
 #if DEBUG
                 print(privateKey as Any, "Is the private key")
 #endif
@@ -164,4 +185,16 @@ extension UIViewController {
         self.present(alertController, animated: true)
     }
     
+}
+
+extension Data {
+    struct HexEncodingOptions: OptionSet {
+        let rawValue: Int
+        static let upperCase = HexEncodingOptions(rawValue: 1 << 0)
+    }
+
+    func hexEncodedString(options: HexEncodingOptions = []) -> String {
+        let format = options.contains(.upperCase) ? "%02hhX" : "%02hhx"
+        return self.map { String(format: format, $0) }.joined()
+    }
 }
